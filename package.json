@@ -1,0 +1,54 @@
+{
+  "name": "finance-manager-v2",
+  "version": "2.0.0",
+  "description": "Personal Finance Manager V2",
+  "type": "module",
+  "main": "dist/main/index.cjs",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && NODE_ENV=development electron .\"",
+    "build": "npm run build:renderer && npm run build:main && electron-builder",
+    "build:renderer": "vite build",
+    "build:main": "node build-main.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "type-check": "tsc --noEmit"
+  },
+  "build": {
+    "appId": "com.yasir.financemanager",
+    "productName": "FinanceManager",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.finance"
+    }
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "node-fetch": "^2.7.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.6",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "@vitest/ui": "^4.1.11",
+    "concurrently": "^10.0.5",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
+    "jsdom": "^29.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11",
+    "wait-on": "^9.1.0"
+  }
+}

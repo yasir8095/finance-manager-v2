@@ -1,0 +1,11 @@
+appId: com.yasir.financemanager
+productName: FinanceManager
+directories:
+  output: release
+files:
+  - dist/**/*
+  - package.json
+mac:
+  target: dmg
+  category: public.app-category.finance
+  icon: assets/icon.icns

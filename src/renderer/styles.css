@@ -1,0 +1,160 @@
+:root {
+  --navy-900: #0a1628;
+  --gold-500: #c9a54a;
+  --gold-400: #d4b36a;
+  --gold-300: #e0c78c;
+  --maroon-500: #b0445c;
+  --maroon-400: #c05a6e;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #0f1729;
+  --bg-secondary: #1a2332;
+  --bg-tertiary: #243044;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  --border: #2d3a4f;
+  --card-bg: #1a2332;
+  --hover-bg: #243044;
+}
+
+[data-theme="light"] {
+  --bg-primary: #f8f9fa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f3f5;
+  --text-primary: #1a1a1a;
+  --text-secondary: #495057;
+  --text-tertiary: #6c757d;
+  --border: #e9ecef;
+  --card-bg: #ffffff;
+  --hover-bg: #f1f3f5;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+#root { height: 100vh; display: flex; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 4px; }
+
+.sidebar {
+  background: var(--navy-900);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s;
+  border-right: 1px solid rgba(201,165,74,0.15);
+}
+
+.main-content {
+  flex: 1;
+  overflow: auto;
+}
+
+.brand-name {
+  font-family: 'Great Vibes', cursive;
+  color: var(--gold-300);
+  font-size: 18px;
+}
+
+.nav-item {
+  width: 100%;
+  padding: 12px 15px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(226,232,240,0.75);
+  cursor: pointer;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.2s;
+  text-align: left;
+  line-height: 1;
+}
+
+.nav-item:hover {
+  background: rgba(201,165,74,0.1);
+}
+
+.nav-item.active {
+  background: rgba(201,165,74,0.15);
+  color: var(--gold-300);
+  font-weight: 500;
+}
+
+.subnav-item {
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 2px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: rgba(226,232,240,0.6);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+
+.subnav-item.active {
+  background: rgba(201,165,74,0.2);
+  color: var(--gold-400);
+}
+
+input, select {
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--text-primary);
+  width: 100%;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--gold-500);
+}
+
+button {
+  cursor: pointer;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 25px;
+  width: 90%;
+  max-width: 550px;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.positive { color: #10b981; }
+.negative { color: #ef4444; }
+.warning { color: var(--maroon-500); }
+.gold-text { color: var(--gold-400); }
