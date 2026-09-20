@@ -23,6 +23,7 @@ export class FinanceDatabase {
     this.db.pragma('journal_mode = WAL')
     this.db.pragma('foreign_keys = ON')
     this.initializeSchema()
+    this.seedDefaultData()
   }
 
   private initializeSchema() {
@@ -205,24 +206,39 @@ export class FinanceDatabase {
         value TEXT
       );
     `)
-    
-    // Migration: add native currency support to budget_entries
-    this.runMigrations()
   }
-  
-  private runMigrations() {
-    // Check if columns exist
-    const budgetColumns = this.db.prepare("PRAGMA table_info(budget_entries)").all() as any[]
-    const columnNames = budgetColumns.map(c => c.name)
-    
-    if (!columnNames.includes('native_amount')) {
-      this.db.exec("ALTER TABLE budget_entries ADD COLUMN native_amount DECIMAL(15,2)")
+
+  private seedDefaultData() {
+    // Seed default account groups
+    const groupCount = this.db.prepare('SELECT COUNT(*) as count FROM account_groups').get() as any
+    if (groupCount.count === 0) {
+      this.db.prepare('INSERT INTO account_groups (name) VALUES (?)').run('YASIR')
+      this.db.prepare('INSERT INTO account_groups (name) VALUES (?)').run('SADIYA')
+      this.db.prepare('INSERT INTO account_groups (name) VALUES (?)').run('JETSTREAM')
     }
-    if (!columnNames.includes('native_currency')) {
-      this.db.exec("ALTER TABLE budget_entries ADD COLUMN native_currency TEXT")
+
+    // Seed default income sources
+    const incomeSourceCount = this.db.prepare('SELECT COUNT(*) as count FROM income_sources').get() as any
+    if (incomeSourceCount.count === 0) {
+      const defaultSources = [
+        { name: 'Salary', sort_order: 1 },
+        { name: 'Jetstream Consults', sort_order: 2 },
+        { name: 'Freelance', sort_order: 3 },
+        { name: 'Transfer from Savings', sort_order: 4 },
+        { name: 'Other', sort_order: 5 },
+      ]
+      const stmt = this.db.prepare('INSERT INTO income_sources (name, sort_order) VALUES (?, ?)')
+      defaultSources.forEach(src => stmt.run(src.name, src.sort_order))
     }
-    if (!columnNames.includes('rate_to_aed')) {
-      this.db.exec("ALTER TABLE budget_entries ADD COLUMN rate_to_aed DECIMAL(15,6)")
+
+    // Seed default currency rates
+    const rateCount = this.db.prepare('SELECT COUNT(*) as count FROM currency_rates').get() as any
+    if (rateCount.count === 0) {
+      const stmt = this.db.prepare('INSERT INTO currency_rates (currency, rate_to_aed, last_refreshed, source) VALUES (?, ?, ?, ?)')
+      stmt.run('AED', 1, new Date().toISOString(), 'default')
+      stmt.run('USD', 3.67, new Date().toISOString(), 'default')
+      stmt.run('INR', 0.044, new Date().toISOString(), 'default')
+      stmt.run('KWD', 11.93, new Date().toISOString(), 'default')
     }
   }
 
@@ -366,23 +382,11 @@ export class FinanceDatabase {
 
   addBudgetEntry(entry: any) {
     const stmt = this.db.prepare(`
-      INSERT INTO budget_entries (year, month, category_id, amount, native_amount, native_currency, rate_to_aed)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(year, month, category_id) DO UPDATE SET 
-        amount = excluded.amount,
-        native_amount = excluded.native_amount,
-        native_currency = excluded.native_currency,
-        rate_to_aed = excluded.rate_to_aed
+      INSERT INTO budget_entries (year, month, category_id, amount)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(year, month, category_id) DO UPDATE SET amount = excluded.amount
     `)
-    return stmt.run(
-      entry.year, 
-      entry.month, 
-      entry.category_id, 
-      entry.amount,
-      entry.native_amount || entry.amount,
-      entry.native_currency || 'AED',
-      entry.rate_to_aed || 1
-    )
+    return stmt.run(entry.year, entry.month, entry.category_id, entry.amount)
   }
 
   updateBudgetEntry(id: number, amount: number) {
@@ -589,10 +593,6 @@ export class FinanceDatabase {
     return this.db.prepare('UPDATE investments SET quantity = ? WHERE id = ?').run(quantity, id)
   }
 
-  updateInvestmentPurchasePrice(id: number, purchasePrice: number) {
-    return this.db.prepare('UPDATE investments SET purchase_price = ? WHERE id = ?').run(purchasePrice, id)
-  }
-
   deleteInvestment(id: number) {
     return this.db.prepare('UPDATE investments SET is_active = 0 WHERE id = ?').run(id)
   }
@@ -616,14 +616,6 @@ export class FinanceDatabase {
       policy.last_updated,
       policy.maturity_date
     )
-  }
-
-  updateInsurancePolicy(id: number, policy: any) {
-    return this.db.prepare('UPDATE insurance_policies SET current_value = ?, last_updated = ? WHERE id = ?').run(policy.current_value, policy.last_updated, id)
-  }
-
-  deleteInsurancePolicy(id: number) {
-    return this.db.prepare('DELETE FROM insurance_policies WHERE id = ?').run(id)
   }
 
   // Currency Rates

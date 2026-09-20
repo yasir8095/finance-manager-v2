@@ -4,7 +4,7 @@ import { ValidationService } from '../services/validation'
 import { PriceService } from '../services/priceService'
 
 export default function Investments() {
-  const { investments, insurancePolicies, addInvestment, addInsurancePolicy, updateInvestmentPrice, updateInvestmentQuantity, deleteInvestment, addRealizedPnl } = useFinanceStore()
+  const { investments, insurancePolicies, addInvestment, addInsurancePolicy, updateInvestmentPrice, updateInvestmentQuantity, updateInvestmentPurchasePrice, deleteInvestment, deleteInsurancePolicy, updateInsurancePolicy, addRealizedPnl } = useFinanceStore()
   const [showAddETF, setShowAddETF] = useState(false)
   const [showAddCrypto, setShowAddCrypto] = useState(false)
   const [showAddPolicy, setShowAddPolicy] = useState(false)
@@ -13,26 +13,25 @@ export default function Investments() {
   const [newPolicy, setNewPolicy] = useState({ policy_number: '', company: '', currency: 'USD', total_invested: '', current_value: '', maturity_date: '' })
   const [updatingPolicyId, setUpdatingPolicyId] = useState<number | null>(null)
   const [newPolicyValue, setNewPolicyValue] = useState('')
+  const [editItem, setEditItem] = useState<any>(null)
+  const [editQuantity, setEditQuantity] = useState('')
+  const [editPrice, setEditPrice] = useState('')
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
   const [sellItem, setSellItem] = useState<any>(null)
   const [sellQuantity, setSellQuantity] = useState('')
   const [sellPrice, setSellPrice] = useState('')
   
   const refreshPrices = async () => {
-    console.log('refreshPrices called', investments.length, 'investments')
     for (const inv of investments) {
-      console.log('Processing:', inv.name, inv.type, inv.ticker_symbol)
       if (inv.type === 'etf' || inv.type === 'stock') {
         const result = await PriceService.fetchETFPrice(inv.ticker_symbol)
         if (result) {
           await updateInvestmentPrice(inv.id, result.price)
-          console.log(`${inv.ticker_symbol} price from: ${result.source}`)
         }
       } else if (inv.type === 'crypto') {
         const result = await PriceService.fetchCryptoPrice(inv.ticker_symbol.toLowerCase())
         if (result) {
           await updateInvestmentPrice(inv.id, result.priceAED)
-          console.log(`${inv.ticker_symbol} price from: ${result.source}`)
         }
       }
     }
@@ -192,18 +191,38 @@ export default function Investments() {
                     <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{lot.purchase_date}</p>
                     <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{lot.quantity} @ {formatCurrency(lot.purchase_price, currency)}</p>
                   </div>
-                  <span style={{ fontSize: '12px', fontWeight: '600', color: lotPnl >= 0 ? '#10b981' : '#ef4444' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '600', color: lotPnl >= 0 ? '#10b981' : '#ef4444', marginRight: '8px' }}>
                     {lotPnl >= 0 ? '+' : ''}{formatCurrency(lotPnl, currency)}
                   </span>
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                   <button onClick={(e) => {
                     e.stopPropagation()
                     setSellItem(lot)
                     setSellQuantity('')
                     setSellPrice(lot.current_price ? lot.current_price.toString() : '')
                   }}
-                    style={{ padding: '4px 8px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#c9a54a' }}>
+                    style={{ padding: '4px 8px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#c9a54a', marginRight: '5px' }}>
                     Sell
                   </button>
+                  <button onClick={(e) => {
+                    e.stopPropagation()
+                    setEditItem(lot)
+                    setEditQuantity(lot.quantity.toString())
+                    setEditPrice(lot.purchase_price.toString())
+                  }}
+                    style={{ padding: '4px 8px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: 'var(--text-secondary)', marginRight: '5px' }}>
+                    Edit
+                  </button>
+                  <button onClick={async (e) => {
+                    e.stopPropagation()
+                    if (confirm('Delete this investment lot?')) {
+                      await deleteInvestment(lot.id)
+                    }
+                  }}
+                    style={{ padding: '4px 8px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#c05a6e' }}>
+                    Delete
+                  </button>
+                  </div>
                 </div>
               )
             })}
@@ -223,7 +242,7 @@ export default function Investments() {
           <h1 style={{ fontSize: '32px', fontWeight: '600', color: 'var(--text-primary)' }}>Investments</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '15px', marginTop: '5px' }}>Track your ETFs, crypto, and insurance policies</p>
         </div>
-        <button onClick={() => { alert('Button clicked'); refreshPrices() }}
+        <button onClick={refreshPrices}
           style={{ padding: '10px 20px', background: '#c9a54a', color: '#0a1628', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
           🔄 Refresh Prices
         </button>
@@ -345,6 +364,38 @@ export default function Investments() {
                       {pnl >= 0 ? '+' : ''}{formatCurrency(pnl, policy.currency)} ({pnlPercent.toFixed(1)}%)
                     </p>
                   </div>
+                  {updatingPolicyId === policy.id ? (
+                    <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                      <input type="number" value={newPolicyValue} onChange={(e) => setNewPolicyValue(e.target.value)}
+                        style={{ width: '100px', padding: '4px 8px', fontSize: '12px' }} />
+                      <button onClick={async () => {
+                        if (newPolicyValue) {
+                          await updateInsurancePolicy(policy.id, {
+                            current_value: parseFloat(newPolicyValue),
+                            last_updated: new Date().toISOString().split('T')[0]
+                          })
+                          setUpdatingPolicyId(null)
+                          setNewPolicyValue('')
+                        }
+                      }}
+                        style={{ padding: '4px 8px', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>Save</button>
+                      <button onClick={() => { setUpdatingPolicyId(null); setNewPolicyValue('') }}
+                        style={{ padding: '4px 8px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: 'var(--text-secondary)' }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setUpdatingPolicyId(policy.id); setNewPolicyValue(policy.current_value.toString()) }}
+                      style={{ padding: '4px 8px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: 'var(--text-secondary)', marginRight: '5px' }}>
+                      Update Value
+                    </button>
+                  )}
+                  <button onClick={async () => {
+                    if (confirm('Delete this insurance policy?')) {
+                      await deleteInsurancePolicy(policy.id)
+                    }
+                  }}
+                    style={{ padding: '4px 8px', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#c05a6e' }}>
+                    Delete
+                  </button>
                 </div>
               </div>
             )
@@ -352,6 +403,48 @@ export default function Investments() {
           {insurancePolicies.length === 0 && <p style={{ color: 'var(--text-tertiary)', textAlign: 'center', padding: '20px' }}>No policies added yet</p>}
         </div>
       </div>
+      {editItem && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px', color: 'var(--text-primary)' }}>Edit Investment Lot</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <p style={{ fontSize: '14px', color: 'var(--text-primary)' }}>{editItem.name}</p>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Quantity</label>
+                <input type="number" step="0.000001" value={editQuantity}
+                  onChange={(e) => setEditQuantity(e.target.value)} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>Purchase Price</label>
+                <input type="number" step="0.01" value={editPrice}
+                  onChange={(e) => setEditPrice(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button onClick={async () => {
+                  const qty = parseFloat(editQuantity)
+                  const price = parseFloat(editPrice)
+                  if (qty <= 0) {
+                    alert('Quantity must be positive')
+                    return
+                  }
+                  // Update via store
+                  const { investments, updateInvestmentQuantity, updateInvestmentPrice } = useFinanceStore.getState()
+                  await updateInvestmentQuantity(editItem.id, qty)
+                  await updateInvestmentPurchasePrice(editItem.id, price)
+                  setEditItem(null)
+                }}
+                  style={{ flex: 1, padding: '12px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
+                  Save Changes
+                </button>
+                <button onClick={() => setEditItem(null)}
+                  style={{ flex: 1, padding: '12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {sellItem && (
         <div className="modal-overlay">
           <div className="modal-content">

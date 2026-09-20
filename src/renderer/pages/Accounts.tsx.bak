@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
 import { useFinanceStore } from '../store/financeStore'
-import { ValidationService } from '../services/validation'
 
 export default function Accounts() {
   const { accounts, accountGroups, addAccount, updateAccount, deactivateAccount, currencyRates, addCurrencyRate } = useFinanceStore()
@@ -13,11 +12,20 @@ export default function Accounts() {
   
   const fxRates: Record<string, number> = { AED: 1 }
   currencyRates.forEach(r => { fxRates[r.currency] = r.rate_to_aed })
+  
+  const testIPC = () => {
+    alert('electronAPI: ' + !!(window as any).electronAPI)
+    alert('fetchFXRate: ' + typeof (window as any).electronAPI?.fetchFXRate)
+    alert('fetchGoldPrice: ' + typeof (window as any).electronAPI?.fetchGoldPrice)
+    alert('fetchCryptoPrice: ' + typeof (window as any).electronAPI?.fetchCryptoPrice)
+  }
 
   const handleAddCurrency = async () => {
+    console.log('handleAddCurrency called', newCurrency)
+    alert('handleAddCurrency: ' + newCurrency)
     if (newCurrency && !fxRates[newCurrency]) {
-      console.log('Fetching FX rate for', newCurrency)
       const result = await (window as any).electronAPI.fetchFXRate('AED', newCurrency)
+      alert('FX result: ' + JSON.stringify(result))
       console.log('FX result:', result)
       if (result) {
         await addCurrencyRate({
@@ -29,7 +37,7 @@ export default function Accounts() {
         setNewCurrency('')
         setShowAddCurrency(false)
       } else {
-        alert('Could not fetch a live rate for ' + newCurrency + '. Check the DevTools console (Cmd+Option+I) for details.')
+        alert('Could not fetch rate for ' + newCurrency)
       }
     }
   }
@@ -107,10 +115,7 @@ export default function Accounts() {
     return (amount || 0) * rate
   }
   
-  const totalAED = accounts.reduce((sum, acct) => {
-    const value = convertToAED(acct.balance, acct.currency)
-    return sum + (acct.is_credit_card === 1 ? -value : value)
-  }, 0)
+  const totalAED = accounts.reduce((sum, acct) => sum + convertToAED(acct.balance, acct.currency), 0)
   
   const currencyTotals: Record<string, number> = {}
   accounts.forEach(acct => {
@@ -152,7 +157,7 @@ export default function Accounts() {
             <input type="text" placeholder="Currency code (e.g., GBP)" value={newCurrency}
               onChange={(e) => setNewCurrency(e.target.value.toUpperCase())}
               style={{ flex: 1 }} />
-            <button onClick={handleAddCurrency}
+            <button onClick={() => { alert('Fetch clicked'); handleAddCurrency() }}
               style={{ padding: '8px 15px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
               Fetch Rate
             </button>
@@ -228,7 +233,7 @@ export default function Accounts() {
               <input type="number" placeholder="Current balance" value={newAccount.balance}
                 onChange={(e) => setNewAccount({...newAccount, balance: e.target.value})} />
               <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                <button onClick={handleAddAccount}
+                <button onClick={() => { alert("Save clicked"); handleAddAccount() }}
                   style={{ flex: 1, padding: '12px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
                   Save
                 </button>

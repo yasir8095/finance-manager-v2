@@ -19,7 +19,9 @@ export default function Settings() {
     deactivateIncomeSource,
     reactivateIncomeSource,
     updateIncomeSourceOrder,
-    selectedYear
+    selectedYear,
+    currencyRates,
+    addCurrencyRate
   } = useFinanceStore()
   
   const [activeTab, setActiveTab] = useState('accountGroups')
@@ -31,6 +33,9 @@ export default function Settings() {
   const [newIncomeSource, setNewIncomeSource] = useState('')
   const [editingIncomeSourceId, setEditingIncomeSourceId] = useState<number | null>(null)
   const [editingIncomeSourceName, setEditingIncomeSourceName] = useState('')
+  const [newCurrencyCode, setNewCurrencyCode] = useState('')
+  const [isFetchingRate, setIsFetchingRate] = useState(false)
+  const [isRefreshingAll, setIsRefreshingAll] = useState(false)
   
   // School fees state
   const [schoolYear, setSchoolYear] = useState(selectedYear)
@@ -72,6 +77,78 @@ export default function Settings() {
     }
   }
   
+  const handleAddCurrency = async () => {
+    if (newCurrencyCode.trim()) {
+      const code = newCurrencyCode.trim().toUpperCase()
+      if (currencyRates.find(r => r.currency === code)) {
+        alert(code + ' already exists')
+        return
+      }
+      setIsFetchingRate(true)
+      try {
+        const result = await (window as any).electronAPI.fetchFXRate('AED', code)
+        if (result) {
+          await addCurrencyRate({
+            currency: code,
+            rate_to_aed: result.rate,
+            last_refreshed: new Date().toISOString(),
+            source: result.source
+          })
+          setNewCurrencyCode('')
+          alert(code + ' added with rate: ' + result.rate.toFixed(4))
+        } else {
+          alert('Could not fetch rate for ' + code)
+        }
+      } catch (error) {
+        alert('Failed to fetch rate for ' + code)
+      } finally {
+        setIsFetchingRate(false)
+      }
+    }
+  }
+
+  const handleRefreshAll = async () => {
+    setIsRefreshingAll(true)
+    try {
+      for (const rate of currencyRates) {
+        if (rate.currency === 'AED') continue // skip base currency
+        const result = await (window as any).electronAPI.fetchFXRate('AED', rate.currency)
+        if (result) {
+          await addCurrencyRate({
+            currency: rate.currency,
+            rate_to_aed: result.rate,
+            last_refreshed: new Date().toISOString(),
+            source: result.source
+          })
+        }
+      }
+      alert('All rates refreshed successfully')
+    } catch (error) {
+      alert('Failed to refresh some rates')
+    } finally {
+      setIsRefreshingAll(false)
+    }
+  }
+
+  const handleRefreshCurrency = async (code: string) => {
+    try {
+      const result = await (window as any).electronAPI.fetchFXRate('AED', code)
+      if (result) {
+        await addCurrencyRate({
+          currency: code,
+          rate_to_aed: result.rate,
+          last_refreshed: new Date().toISOString(),
+          source: result.source
+        })
+        alert(code + ' rate updated to: ' + result.rate.toFixed(4))
+      } else {
+        alert('Could not fetch rate for ' + code)
+      }
+    } catch (error) {
+      alert('Failed to fetch rate for ' + code)
+    }
+  }
+
   const handleAddGroup = async () => {
     if (newGroupName.trim()) {
       if (editingGroupId) {
@@ -144,7 +221,7 @@ export default function Settings() {
       f.month === month
     )
     
-    await (window as any).electronAPI.addSchoolFee({
+    const result = await (window as any).electronAPI.addSchoolFee({
       year: schoolYear,
       fee_type: feeType,
       child_name: childName,
@@ -152,13 +229,14 @@ export default function Settings() {
       amount: amount
     })
     
-    // Update local state
+    // Update local state with the returned id
     if (existingFee) {
       setSchoolFees(prev => prev.map(f => 
         f.id === existingFee.id ? { ...f, amount: amount } : f
       ))
     } else {
       setSchoolFees(prev => [...prev, {
+        id: result?.lastInsertRowid || Date.now(),
         year: schoolYear,
         fee_type: feeType,
         child_name: childName,
@@ -200,6 +278,7 @@ export default function Settings() {
     { id: 'accountGroups', label: 'Account Groups' },
     { id: 'categories', label: 'Expense Categories' },
     { id: 'incomeSources', label: 'Income Sources' },
+    { id: 'currencies', label: 'Currencies' },
     { id: 'schoolFees', label: 'School Fees' },
   ]
   
@@ -457,6 +536,52 @@ export default function Settings() {
               ))}
             </div>
           )}
+        </div>
+      )}
+      
+      {activeTab === 'currencies' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Manage currencies and their exchange rates to AED</p>
+            <button onClick={handleRefreshAll} disabled={isRefreshingAll}
+              style={{ padding: '8px 15px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}>
+              {isRefreshingAll ? 'Refreshing...' : '🔄 Refresh All Rates'}
+            </button>
+          </div>
+          
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+            <input
+              type="text"
+              placeholder="Currency code (e.g., GBP)"
+              value={newCurrencyCode}
+              onChange={(e) => setNewCurrencyCode(e.target.value.toUpperCase())}
+              style={{ maxWidth: '250px' }}
+            />
+            <button onClick={handleAddCurrency} disabled={isFetchingRate}
+              style={{ padding: '10px 20px', background: '#c9a54a', color: '#0a1628', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
+              {isFetchingRate ? 'Fetching...' : 'Add Currency'}
+            </button>
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            {currencyRates.map((rate: any) => (
+              <div key={rate.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 15px', background: 'var(--card-bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>{rate.currency}</span>
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>1 {rate.currency} = {rate.rate_to_aed} AED</span>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                    Source: {rate.source} | Updated: {new Date(rate.last_refreshed).toLocaleDateString()}
+                  </span>
+                  <button onClick={() => handleRefreshCurrency(rate.currency)}
+                    style={{ padding: '5px 12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                    Refresh Rate
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
       

@@ -207,12 +207,24 @@ ipcMain.handle('update-investment-quantity', (event, id, quantity) => {
   return database.updateInvestmentQuantity(id, quantity)
 })
 
+ipcMain.handle('update-investment-purchase-price', (event, id, purchasePrice) => {
+  return database.updateInvestmentPurchasePrice(id, purchasePrice)
+})
+
 ipcMain.handle('delete-investment', (event, id) => {
   return database.deleteInvestment(id)
 })
 
 ipcMain.handle('add-insurance-policy', (event, policy) => {
   return database.addInsurancePolicy(policy)
+})
+
+ipcMain.handle('update-insurance-policy', (event, id, policy) => {
+  return database.updateInsurancePolicy(id, policy)
+})
+
+ipcMain.handle('delete-insurance-policy', (event, id) => {
+  return database.deleteInsurancePolicy(id)
 })
 
 ipcMain.handle('add-currency-rate', (event, rate) => {

@@ -18,6 +18,7 @@ export default function Dashboard() {
   } = useFinanceStore()
   
   const [netWorthHistory, setNetWorthHistory] = React.useState<Array<{date: string, value: number}>>([])
+  const [schoolFeesData, setSchoolFeesData] = React.useState<Record<number, number>>({})
   
   const rates: Record<string, number> = { AED: 1 }
   currencyRates.forEach(rate => {
@@ -28,7 +29,10 @@ export default function Dashboard() {
   const goldPrice22ct = goldPrices.length > 0 ? goldPrices[0].price_22ct : 0
   
   // Calculate net worth
-  const totalAccounts = accounts.reduce((sum, acct) => sum + (acct.balance || 0) * (rates[acct.currency] || 1), 0)
+  const totalAccounts = accounts.reduce((sum, acct) => {
+    const value = (acct.balance || 0) * (rates[acct.currency] || 1)
+    return sum + (acct.is_credit_card === 1 ? -value : value)
+  }, 0)
   const totalInvestments = investments.reduce((sum, inv) => {
     const value = (inv.quantity || 0) * (inv.current_price || 0)
     if (inv.currency === 'USD') return sum + value * (rates['USD'] || 3.67)

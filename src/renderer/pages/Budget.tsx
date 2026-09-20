@@ -99,6 +99,13 @@ export default function Budget() {
     // Auto-populate credit card bill rollover
     const category = categories.find(c => c.id === categoryId)
     if (category && category.name.endsWith(' Bill') && month > 0) {
+      // Check if user has manually entered a value first
+      const manualKey = `${categoryId}-${month}`
+      if (budgetData[manualKey] && budgetData[manualKey] !== '') {
+        return budgetData[manualKey]
+      }
+      
+      // No manual entry - calculate rollover
       // Extract credit card name from Bill category name
       // Format: "YASIR - ENBD - VISA Bill" -> "YASIR - ENBD - VISA"
       const ccName = category.name.replace(/ Bill$/, '')
@@ -114,7 +121,14 @@ export default function Budget() {
         const ccCategories = categories.filter(c => c.linked_account_id === creditCard.id)
         let rolloverTotal = 0
         ccCategories.forEach(ccCat => {
-          const prevMonthVal = budgetData[`${ccCat.id}-${month - 1}`] || '0'
+          let prevMonthVal = budgetData[`${ccCat.id}-${month - 1}`] || '0'
+          
+          // If this is school fees category, use the auto-populated value
+          if (schoolFeesCategory && ccCat.id === schoolFeesCategory.id) {
+            const schoolFeeTotal = schoolFeesData[month] || 0 // month is prev month since we check month > 0
+            prevMonthVal = schoolFeeTotal > 0 ? schoolFeeTotal.toString() : '0'
+          }
+          
           rolloverTotal += parseFloat(prevMonthVal) || 0
         })
         if (rolloverTotal > 0) {
@@ -348,7 +362,7 @@ export default function Budget() {
               </thead>
               <tbody>
                 <tr>
-                  <td colSpan={15} style={{ padding: '10px 15px', fontSize: '14px', fontWeight: '600', color: '#10b981' }}>💰 INCOME</td>
+                  <td colSpan={15} style={{ padding: 0 }}><div style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', padding: '10px 15px', fontSize: '14px', fontWeight: '600', color: '#10b981', zIndex: 1, width: '240px' }}>💰 INCOME</div></td>
                 </tr>
                 {incomeSources.map(source => (
                   <tr key={source.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -369,7 +383,7 @@ export default function Budget() {
                   </tr>
                 ))}
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td colSpan={3} style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', padding: '8px 15px', fontSize: '13px', fontWeight: '700', color: '#10b981' }}>TOTAL INCOME</td>
+                  <td colSpan={3} style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', zIndex: 1, padding: '8px 15px', fontSize: '13px', fontWeight: '700', color: '#10b981' }}>TOTAL INCOME</td>
                   {monthNames.map((m, i) => (
                     <td key={m} style={{ padding: '8px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#10b981' }}>{calculateIncomeMonthTotal(i).toLocaleString() || '-'}</td>
                   ))}
@@ -381,10 +395,10 @@ export default function Budget() {
                   return (
                     <React.Fragment key={group}>
                       <tr>
-                        <td colSpan={15} style={{ padding: '10px 15px', fontSize: '14px', fontWeight: '600', color: '#d4b36a' }}>
+                        <td colSpan={15} style={{ padding: 0 }}><div style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', padding: '10px 15px', fontSize: '14px', fontWeight: '600', color: '#d4b36a', zIndex: 1, width: '240px' }}>
                           {group}
                           {isCreditCard && <span style={{ fontSize: '11px', color: '#c05a6e', marginLeft: '8px' }}>💳</span>}
-                        </td>
+                        </div></td>
                       </tr>
                       {groupCats.map(cat => {
                         const isSchoolFees = schoolFeesCategory && cat.id === schoolFeesCategory.id
@@ -406,6 +420,8 @@ export default function Budget() {
                                 {isSchoolFees ? (
                                   <div style={{ 
                                     width: '80px', 
+                                    minWidth: '80px',
+                                    minHeight: '33px',
                                     padding: '6px 8px', 
                                     background: 'rgba(201,165,74,0.1)', 
                                     border: '1px solid var(--border)', 
@@ -413,7 +429,8 @@ export default function Budget() {
                                     fontSize: '12px', 
                                     color: 'var(--text-primary)', 
                                     textAlign: 'right',
-                                    display: 'inline-block'
+                                    display: 'inline-block',
+                                    boxSizing: 'border-box'
                                   }}>
                                     {getBudgetCell(cat.id, i) || ''}
                                   </div>
@@ -430,7 +447,7 @@ export default function Budget() {
                         )
                       })}
                       <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td colSpan={3} style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', padding: '6px 15px', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>Group Total</td>
+                        <td colSpan={3} style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', zIndex: 1, padding: '6px 15px', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>Group Total</td>
                         {monthNames.map((m, i) => (
                           <td key={m} style={{ padding: '6px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: 'var(--text-primary)' }}>{calculateGroupMonthTotal(groupCats, i).toLocaleString() || '-'}</td>
                         ))}
@@ -441,17 +458,17 @@ export default function Budget() {
                 })}
 
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td colSpan={3} style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', padding: '10px 15px', fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>TOTAL EXPENSE (Gross)</td>
+                  <td colSpan={3} style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', zIndex: 1, padding: '10px 15px', fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>TOTAL EXPENSE (Gross)</td>
                   {monthNames.map((m, i) => { const gross = calculateGrossExpense(i); const income = calculateIncomeMonthTotal(i); const textColor = gross > income ? '#ef4444' : '#10b981'; return <td key={m} style={{ padding: '8px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: textColor }}>{gross.toLocaleString() || '-'}</td> })}
                   <td style={{ padding: '8px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>{monthNames.reduce((sum, m, i) => sum + calculateGrossExpense(i), 0).toLocaleString()}</td>
                 </tr>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td colSpan={3} style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', padding: '10px 15px', fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>NET CASH OUTFLOW</td>
+                  <td colSpan={3} style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', zIndex: 1, padding: '10px 15px', fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>NET CASH OUTFLOW</td>
                   {monthNames.map((m, i) => { const net = calculateNetCashOutflow(i); const income = calculateIncomeMonthTotal(i); const textColor = net > income ? '#ef4444' : '#10b981'; return <td key={m} style={{ padding: '8px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: textColor }}>{net.toLocaleString() || '-'}</td> })}
                   <td style={{ padding: '8px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>{monthNames.reduce((sum, m, i) => sum + calculateNetCashOutflow(i), 0).toLocaleString()}</td>
                 </tr>
                 <tr>
-                  <td colSpan={3} style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', padding: '10px 15px', fontSize: '13px', fontWeight: '700', color: '#d4b36a' }}>💰 NET SAVINGS</td>
+                  <td colSpan={3} style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', zIndex: 1, padding: '10px 15px', fontSize: '13px', fontWeight: '700', color: '#d4b36a' }}>💰 NET SAVINGS</td>
                   {monthNames.map((m, i) => { const savings = calculateSavings(i); const textColor = savings > 0 ? '#10b981' : savings < 0 ? '#ef4444' : 'var(--text-primary)'; return <td key={m} style={{ padding: '8px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: textColor }}>{savings.toLocaleString() || '-'}</td> })}
                   <td style={{ padding: '8px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#d4b36a' }}>{monthNames.reduce((sum, m, i) => sum + calculateSavings(i), 0).toLocaleString()}</td>
                 </tr>

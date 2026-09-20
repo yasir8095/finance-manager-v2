@@ -65,8 +65,11 @@ interface FinanceState {
   addInvestment: (investment: any) => Promise<void>
   updateInvestmentPrice: (id: number, price: number) => Promise<void>
   updateInvestmentQuantity: (id: number, quantity: number) => Promise<void>
+  updateInvestmentPurchasePrice: (id: number, purchasePrice: number) => Promise<void>
   deleteInvestment: (id: number) => Promise<void>
   addInsurancePolicy: (policy: any) => Promise<void>
+  updateInsurancePolicy: (id: number, policy: any) => Promise<void>
+  deleteInsurancePolicy: (id: number) => Promise<void>
   addCurrencyRate: (rate: any) => Promise<void>
   addSchoolFeeType: (year: number, name: string) => Promise<void>
   addSchoolChild: (year: number, name: string) => Promise<void>
@@ -262,6 +265,11 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
     await get().refreshData()
   },
 
+  updateInvestmentPurchasePrice: async (id, purchasePrice) => {
+    await (window as any).electronAPI.updateInvestmentPurchasePrice(id, purchasePrice)
+    await get().refreshData()
+  },
+
   deleteInvestment: async (id) => {
     await (window as any).electronAPI.deleteInvestment(id)
     await get().refreshData()
@@ -273,6 +281,16 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
   
   addInsurancePolicy: async (policy) => {
     await (window as any).electronAPI.addInsurancePolicy(policy)
+    await get().refreshData()
+  },
+
+  updateInsurancePolicy: async (id, policy) => {
+    await (window as any).electronAPI.updateInsurancePolicy(id, policy)
+    await get().refreshData()
+  },
+
+  deleteInsurancePolicy: async (id) => {
+    await (window as any).electronAPI.deleteInsurancePolicy(id)
     await get().refreshData()
   },
   
