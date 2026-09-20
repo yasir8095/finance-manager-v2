@@ -13,6 +13,7 @@ export default function Budget() {
     budgetEntries,
     incomeEntries,
     incomeSources,
+    currencyRates,
     addBudgetEntry,
     updateBudgetEntry,
     addIncomeEntry
@@ -75,21 +76,23 @@ export default function Budget() {
   // Find school fees category
   const schoolFeesCategory = categories.find(cat => cat.name === 'School Fees')
   
-  const setBudgetCell = (categoryId: number, month: number, value: string) => {
-    const key = `${categoryId}-${month}`
-    setBudgetData(prev => ({ ...prev, [key]: value }))
-    clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(async () => {
-      const existing = budgetEntries.find(be => be.category_id === categoryId && be.month === month)
-      if (existing) {
-        await updateBudgetEntry(existing.id, parseFloat(value) || 0)
-      } else {
-        await addBudgetEntry({ year: selectedYear, month, category_id: categoryId, amount: parseFloat(value) || 0 })
-      }
-    }, 500)
+  // Get the currency for a category based on its linked account
+  const getCategoryCurrency = (categoryId: number): string => {
+    const cat = categories.find(c => c.id === categoryId)
+    if (!cat) return 'AED'
+    const account = accounts.find(a => a.id === cat.linked_account_id)
+    return account?.currency || 'AED'
   }
   
-  const getBudgetCell = (categoryId: number, month: number) => {
+  // Get the exchange rate for a currency (to AED)
+  const getCurrencyRate = (currency: string): number => {
+    if (currency === 'AED') return 1
+    const rate = currencyRates.find(r => r.currency === currency)
+    return rate?.rate_to_aed || 1
+  }
+  
+  // Get the AED value of a cell (for calculations)
+  const getBudgetCellAED = (categoryId: number, month: number): string => {
     // Auto-populate school fees
     if (schoolFeesCategory && categoryId === schoolFeesCategory.id) {
       const schoolFeeTotal = schoolFeesData[month + 1] || 0
@@ -106,26 +109,20 @@ export default function Budget() {
       }
       
       // No manual entry - calculate rollover
-      // Extract credit card name from Bill category name
-      // Format: "YASIR - ENBD - VISA Bill" -> "YASIR - ENBD - VISA"
       const ccName = category.name.replace(/ Bill$/, '')
-      
-      // Find the specific credit card account
       const creditCard = accounts.find(a => {
         const fullName = `${a.name} - ${a.bank} - ${a.type}`
         return fullName === ccName && a.is_credit_card === 1
       })
       
       if (creditCard) {
-        // Sum expenses assigned to this specific credit card in previous month
         const ccCategories = categories.filter(c => c.linked_account_id === creditCard.id)
         let rolloverTotal = 0
         ccCategories.forEach(ccCat => {
           let prevMonthVal = budgetData[`${ccCat.id}-${month - 1}`] || '0'
           
-          // If this is school fees category, use the auto-populated value
           if (schoolFeesCategory && ccCat.id === schoolFeesCategory.id) {
-            const schoolFeeTotal = schoolFeesData[month] || 0 // month is prev month since we check month > 0
+            const schoolFeeTotal = schoolFeesData[month] || 0
             prevMonthVal = schoolFeeTotal > 0 ? schoolFeeTotal.toString() : '0'
           }
           
@@ -139,6 +136,148 @@ export default function Budget() {
     
     const key = `${categoryId}-${month}`
     return budgetData[key] || ''
+  }
+  
+  // Alias for backward compatibility with existing calculation functions
+  const getBudgetCell = getBudgetCellAED
+  
+  // Get the native currency value of a cell (for display in input)
+  const getBudgetCellNative = (categoryId: number, month: number): string => {
+    // School fees - always AED
+    if (schoolFeesCategory && categoryId === schoolFeesCategory.id) {
+      const schoolFeeTotal = schoolFeesData[month + 1] || 0
+      return schoolFeeTotal > 0 ? schoolFeeTotal.toString() : ''
+    }
+    
+    // Look up the entry in budgetEntries
+    const entry = budgetEntries.find(be => be.category_id === categoryId && be.month === month)
+    
+    // Bill categories: prefer manual entry (stored in budgetData), else use auto-calc
+    const category = categories.find(c => c.id === categoryId)
+    if (category && category.name.endsWith(' Bill') && month > 0) {
+      const manualKey = `${categoryId}-${month}`
+      if (budgetData[manualKey] && budgetData[manualKey] !== '') {
+        // Manual override - return the AED value (bills are always in AED)
+        return budgetData[manualKey]
+      }
+      // Return the AED auto-calculated rollover
+      const aedVal = getBudgetCellAED(categoryId, month)
+      return aedVal
+    }
+    
+    // Regular entry - return native amount if exists
+    if (entry) {
+      if (entry.native_amount !== null && entry.native_amount !== undefined) {
+        return entry.native_amount.toString()
+      }
+      return entry.amount ? entry.amount.toString() : ''
+    }
+    
+    // No entry - check budgetData (in-progress typing)
+    const key = `${categoryId}-${month}`
+    return budgetData[key] || ''
+  }
+  
+  // Get the currency of an existing entry (from DB, defaults to AED)
+  const getBudgetCellCurrency = (categoryId: number, month: number): string => {
+    const entry = budgetEntries.find(be => be.category_id === categoryId && be.month === month)
+    if (entry && entry.native_currency) {
+      return entry.native_currency
+    }
+    return getCategoryCurrency(categoryId)
+  }
+  
+  // Get the locked rate of an existing entry
+  const getBudgetCellRate = (categoryId: number, month: number): number => {
+    const entry = budgetEntries.find(be => be.category_id === categoryId && be.month === month)
+    if (entry && entry.rate_to_aed) {
+      return entry.rate_to_aed
+    }
+    return getCurrencyRate(getCategoryCurrency(categoryId))
+  }
+  
+  // Set a budget cell with native currency support
+  const setBudgetCell = (categoryId: number, month: number, value: string) => {
+    const key = `${categoryId}-${month}`
+    
+    // Skip if value hasn't changed
+    const currentNative = getBudgetCellNative(categoryId, month)
+    if (currentNative === value) {
+      return
+    }
+    
+    setBudgetData(prev => ({ ...prev, [key]: value }))
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(async () => {
+      const currency = getCategoryCurrency(categoryId)
+      const nativeAmount = parseFloat(value) || 0
+      
+      // Get the existing entry to preserve its locked rate if it exists
+      const existing = budgetEntries.find(be => be.category_id === categoryId && be.month === month)
+      
+      // If existing entry has a locked rate, keep it. Otherwise use current rate.
+      let rate = 1
+      if (currency === 'AED') {
+        rate = 1
+      } else if (existing && existing.rate_to_aed && existing.native_currency === currency) {
+        // Preserve the existing locked rate
+        rate = existing.rate_to_aed
+      } else {
+        // New entry or currency changed - use current rate
+        rate = getCurrencyRate(currency)
+      }
+      
+      const aedAmount = nativeAmount * rate
+      
+      await addBudgetEntry({ 
+        year: selectedYear, 
+        month, 
+        category_id: categoryId, 
+        amount: aedAmount,
+        native_amount: nativeAmount,
+        native_currency: currency,
+        rate_to_aed: rate
+      })
+    }, 500)
+  }
+  
+  // Refresh the rate for a specific cell
+  const refreshCellRate = async (categoryId: number, month: number) => {
+    const currency = getCategoryCurrency(categoryId)
+    if (currency === 'AED') return
+    
+    const currentRate = getCurrencyRate(currency)
+    const entry = budgetEntries.find(be => be.category_id === categoryId && be.month === month)
+    
+    if (!entry) {
+      alert('No entry to refresh')
+      return
+    }
+    
+    const oldRate = entry.rate_to_aed || currentRate
+    if (oldRate === currentRate) {
+      alert('Rate is already current')
+      return
+    }
+    
+    const confirmed = confirm(
+      `Update rate from ${oldRate.toFixed(4)} to ${currentRate.toFixed(4)}?\n\nThis will recalculate the AED equivalent for this cell.`
+    )
+    
+    if (confirmed) {
+      const nativeAmount = entry.native_amount || 0
+      const newAedAmount = nativeAmount * currentRate
+      
+      await addBudgetEntry({
+        year: selectedYear,
+        month,
+        category_id: categoryId,
+        amount: newAedAmount,
+        native_amount: nativeAmount,
+        native_currency: currency,
+        rate_to_aed: currentRate
+      })
+    }
   }
   
   const setIncomeCell = (source: string, month: number, value: string) => {
@@ -155,14 +294,49 @@ export default function Budget() {
     return incomeData[key] || ''
   }
   
-  const copyToAllMonths = (categoryId: number, value: string, fromMonth: number) => {
+  const copyForwardFromLastFilled = (categoryId: number) => {
+    // Find the last month with a non-zero value for this category
+    let lastFilledMonth = -1
+    let lastValue = ''
+    for (let m = 0; m < 12; m++) {
+      const val = getBudgetCellNative(categoryId, m)
+      const numVal = parseFloat(val)
+      if (val && val !== '' && !isNaN(numVal) && numVal !== 0) {
+        lastFilledMonth = m
+        lastValue = val
+      }
+    }
+    
+    if (lastFilledMonth === -1 || !lastValue) {
+      alert('No value to copy - enter a value in at least one month first')
+      return
+    }
+    
+    if (lastFilledMonth === 11) {
+      alert('This category is already filled through December')
+      return
+    }
+    
+    const currency = getCategoryCurrency(categoryId)
+    const rate = getCurrencyRate(currency)
+    const nativeAmount = parseFloat(lastValue) || 0
+    const aedAmount = nativeAmount * rate
+    
     const updates: Record<string, string> = {}
-    for (let m = fromMonth + 1; m < 12; m++) {
-      updates[`${categoryId}-${m}`] = value
+    for (let m = lastFilledMonth + 1; m < 12; m++) {
+      updates[`${categoryId}-${m}`] = lastValue
     }
     setBudgetData(prev => ({ ...prev, ...updates }))
-    for (let m = fromMonth + 1; m < 12; m++) {
-      addBudgetEntry({ year: selectedYear, month: m, category_id: categoryId, amount: parseFloat(value) || 0 })
+    for (let m = lastFilledMonth + 1; m < 12; m++) {
+      addBudgetEntry({ 
+        year: selectedYear, 
+        month: m, 
+        category_id: categoryId, 
+        amount: aedAmount,
+        native_amount: nativeAmount,
+        native_currency: currency,
+        rate_to_aed: rate
+      })
     }
   }
   
@@ -310,9 +484,37 @@ export default function Budget() {
                           {cellValue || '-'}
                         </div>
                       ) : (
-                        <input type="number" value={cellValue}
-                          onChange={(e) => setBudgetCell(cat.id, selectedMonth, e.target.value)}
-                          style={{ width: '200px' }} />
+                        <div style={{ width: '200px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <input type="number" 
+                            key={`${cat.id}-${selectedMonth}-${selectedYear}`}
+                            defaultValue={getBudgetCellNative(cat.id, selectedMonth)}
+                            onBlur={(e) => setBudgetCell(cat.id, selectedMonth, e.target.value)}
+                            style={{ width: '100%' }} />
+                          {(() => {
+                            const currency = getBudgetCellCurrency(cat.id, selectedMonth)
+                            if (currency === 'AED') return null
+                            const nativeVal = parseFloat(getBudgetCellNative(cat.id, selectedMonth)) || 0
+                            const rate = getBudgetCellRate(cat.id, selectedMonth)
+                            const aedVal = nativeVal * rate
+                            const entry = budgetEntries.find(be => be.category_id === cat.id && be.month === selectedMonth)
+                            const canRefresh = entry && entry.rate_to_aed !== getCurrencyRate(currency)
+                            return (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+                                  ≈ AED {aedVal.toLocaleString(undefined, { maximumFractionDigits: 2 })} @ {rate.toFixed(3)}
+                                </span>
+                                {canRefresh && (
+                                  <button 
+                                    onClick={() => refreshCellRate(cat.id, selectedMonth)}
+                                    title="Refresh to current rate"
+                                    style={{ padding: '2px 6px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                    ⟳
+                                  </button>
+                                )}
+                              </div>
+                            )
+                          })()}
+                        </div>
                       )}
                     </div>
                   )
@@ -411,7 +613,7 @@ export default function Budget() {
                             </td>
                             <td style={{ position: 'sticky', left: '180px', background: 'var(--card-bg)', padding: '8px', textAlign: 'center' }}>
                               {!isSchoolFees && (
-                                <button onClick={() => { const val = getBudgetCell(cat.id, 0); if (val) copyToAllMonths(cat.id, val, 0) }} style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', padding: '2px 6px', color: 'var(--text-secondary)' }}>⧉</button>
+                                <button onClick={() => copyForwardFromLastFilled(cat.id)} title="Copy from last filled month forward" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', padding: '2px 6px', color: 'var(--text-secondary)' }}>⧉</button>
                               )}
                             </td>
                             <td style={{ position: 'sticky', left: '240px', background: 'var(--card-bg)', padding: '8px 15px', fontSize: '12px', color: 'var(--text-tertiary)' }}>{group}</td>
@@ -422,7 +624,7 @@ export default function Budget() {
                                     width: '80px', 
                                     minWidth: '80px',
                                     minHeight: '33px',
-                                    padding: '6px 8px', 
+                                    padding: '6px 4px', 
                                     background: 'rgba(201,165,74,0.1)', 
                                     border: '1px solid var(--border)', 
                                     borderRadius: '4px', 
@@ -432,11 +634,14 @@ export default function Budget() {
                                     display: 'inline-block',
                                     boxSizing: 'border-box'
                                   }}>
-                                    {getBudgetCell(cat.id, i) || ''}
+                                    {getBudgetCellAED(cat.id, i) || ''}
                                   </div>
                                 ) : (
-                                  <input type="number" value={getBudgetCell(cat.id, i)} onChange={(e) => setBudgetCell(cat.id, i, e.target.value)}
-                                    style={{ width: '80px', padding: '6px 8px', background: isCreditCard ? 'rgba(201,165,74,0.1)' : 'var(--bg-tertiary)' }} />
+                                  <input type="number" 
+                                    key={`${cat.id}-${selectedYear}-${i}-${getBudgetCellNative(cat.id, i)}`}
+                                    defaultValue={getBudgetCellNative(cat.id, i)}
+                                    onBlur={(e) => setBudgetCell(cat.id, i, e.target.value)}
+                                    style={{ width: '80px', padding: '6px 4px', background: isCreditCard ? 'rgba(201,165,74,0.1)' : 'var(--bg-tertiary)', fontSize: '12px' }} />
                                 )}
                               </td>
                             ))}
