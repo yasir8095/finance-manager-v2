@@ -146,8 +146,24 @@ export default function Budget() {
       }
     }
     
+    // Fall back to stored entry (AED amount)
+    const entry = budgetEntries.find(be => be.category_id === categoryId && be.month === month)
+    if (entry) {
+      return entry.amount ? entry.amount.toString() : ''
+    }
+    
+    // No entry in DB - check local budgetData (in-progress typing)
+    // Note: budgetData stores native amounts, so convert to AED
     const key = `${categoryId}-${month}`
-    return budgetData[key] || ''
+    const localVal = budgetData[key]
+    if (localVal && localVal !== '') {
+      const currency = getCategoryCurrency(categoryId)
+      if (currency === 'AED') return localVal
+      const rate = getCurrencyRate(currency)
+      return (parseFloat(localVal) * rate).toString()
+    }
+    
+    return ''
   }
   
   // Alias for backward compatibility with existing calculation functions
