@@ -135,6 +135,14 @@ ipcMain.handle('deactivate-category', (event, id) => {
   return database.deactivateCategory(id)
 })
 
+ipcMain.handle('get-budget-entries', (event, year) => {
+  return database.getBudgetEntriesByYear(year)
+})
+
+ipcMain.handle('get-income-entries', (event, year) => {
+  return database.getIncomeEntriesByYear(year)
+})
+
 ipcMain.handle('add-budget-entry', (event, entry) => {
   return database.addBudgetEntry(entry)
 })

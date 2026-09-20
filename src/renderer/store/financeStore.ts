@@ -38,6 +38,8 @@ interface FinanceState {
   toggleTheme: () => void
   setCurrentPage: (page: string) => void
   refreshData: () => Promise<void>
+  loadBudgetEntriesForYear: (year: number) => Promise<void>
+  loadIncomeEntriesForYear: (year: number) => Promise<void>
   addAccount: (account: any) => Promise<void>
   updateAccount: (id: number, account: any) => Promise<void>
   deactivateAccount: (id: number) => Promise<void>
@@ -128,6 +130,16 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
     } catch (error: any) {
       set({ error: error.message, isLoading: false })
     }
+  },
+  
+  loadBudgetEntriesForYear: async (year) => {
+    const entries = await (window as any).electronAPI.getBudgetEntries(year)
+    set({ budgetEntries: entries })
+  },
+  
+  loadIncomeEntriesForYear: async (year) => {
+    const entries = await (window as any).electronAPI.getIncomeEntries(year)
+    set({ incomeEntries: entries })
   },
   
   addAccount: async (account) => {

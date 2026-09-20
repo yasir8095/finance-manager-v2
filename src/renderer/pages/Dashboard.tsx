@@ -11,14 +11,45 @@ export default function Dashboard() {
     properties, 
     currencyRates, 
     goldPrices,
-    selectedYear,
-    selectedMonth,
+
     budgetEntries,
     incomeEntries
   } = useFinanceStore()
   
   const [netWorthHistory, setNetWorthHistory] = React.useState<Array<{date: string, value: number}>>([])
   const [schoolFeesData, setSchoolFeesData] = React.useState<Record<number, number>>({})
+  const [dashBudgetEntries, setDashBudgetEntries] = React.useState<any[]>([])
+  const [dashIncomeEntries, setDashIncomeEntries] = React.useState<any[]>([])
+  
+  // Dashboard always shows current real month/year
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() // 0-indexed
+  
+  useEffect(() => {
+    loadDashboardData()
+  }, [])
+  
+  const loadDashboardData = async () => {
+    try {
+      // Load budget and income entries for current year (independent of Budget page)
+      const budgetEntriesData = await (window as any).electronAPI.getBudgetEntries(currentYear)
+      const incomeEntriesData = await (window as any).electronAPI.getIncomeEntries(currentYear)
+      setDashBudgetEntries(budgetEntriesData)
+      setDashIncomeEntries(incomeEntriesData)
+      
+      // Load school fees for current year
+      const fees = await (window as any).electronAPI.getSchoolFees(currentYear)
+      const feesByMonth: Record<number, number> = {}
+      fees.forEach((fee: any) => {
+        if (!feesByMonth[fee.month]) feesByMonth[fee.month] = 0
+        feesByMonth[fee.month] += parseFloat(fee.amount) || 0
+      })
+      setSchoolFeesData(feesByMonth)
+    } catch (error) {
+      console.error('Failed to load dashboard data:', error)
+    }
+  }
   
   const rates: Record<string, number> = { AED: 1 }
   currencyRates.forEach(rate => {
@@ -157,13 +188,13 @@ export default function Dashboard() {
         <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border)' }}>
           <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Monthly Income</p>
           <p style={{ fontSize: '26px', fontWeight: '700', color: '#10b981', marginTop: '5px' }}>
-            {formatCurrency(incomeEntries.filter(ie => ie.year === selectedYear && ie.month === selectedMonth).reduce((sum, ie) => sum + ie.amount, 0))}
+            {formatCurrency(dashIncomeEntries.filter(ie => ie.year === currentYear && ie.month === currentMonth).reduce((sum, ie) => sum + ie.amount, 0))}
           </p>
         </div>
         <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border)' }}>
           <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Monthly Expenses</p>
           <p style={{ fontSize: '26px', fontWeight: '700', color: '#ef4444', marginTop: '5px' }}>
-            {formatCurrency(budgetEntries.filter(be => be.year === selectedYear && be.month === selectedMonth).reduce((sum, be) => sum + be.amount, 0))}
+            {formatCurrency(dashBudgetEntries.filter(be => be.year === currentYear && be.month === currentMonth).reduce((sum, be) => sum + be.amount, 0) + (schoolFeesData[currentMonth + 1] || 0))}
           </p>
         </div>
       </div>

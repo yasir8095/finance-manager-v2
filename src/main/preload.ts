@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   addCategory: (category: any) => ipcRenderer.invoke('add-category', category),
   updateCategory: (id: number, category: any) => ipcRenderer.invoke('update-category', id, category),
   deactivateCategory: (id: number) => ipcRenderer.invoke('deactivate-category', id),
+  getBudgetEntries: (year: number) => ipcRenderer.invoke('get-budget-entries', year),
+  getIncomeEntries: (year: number) => ipcRenderer.invoke('get-income-entries', year),
   addBudgetEntry: (entry: any) => ipcRenderer.invoke('add-budget-entry', entry),
   updateBudgetEntry: (id: number, amount: number) => ipcRenderer.invoke('update-budget-entry', id, amount),
   addIncomeSource: (name: string) => ipcRenderer.invoke('add-income-source', name),

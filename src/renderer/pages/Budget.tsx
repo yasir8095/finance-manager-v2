@@ -14,6 +14,8 @@ export default function Budget() {
     incomeEntries,
     incomeSources,
     currencyRates,
+    loadBudgetEntriesForYear,
+    loadIncomeEntriesForYear,
     addBudgetEntry,
     updateBudgetEntry,
     addIncomeEntry
@@ -26,10 +28,20 @@ export default function Budget() {
   const saveTimer = React.useRef<any>(null)
   
   useEffect(() => {
+    // Load entries for the selected year
+    loadBudgetEntriesForYear(selectedYear)
+    loadIncomeEntriesForYear(selectedYear)
+  }, [selectedYear])
+
+  useEffect(() => {
     // Build maps from entries
     const budgetMap: Record<string, string> = {}
     budgetEntries.forEach(entry => {
-      budgetMap[`${entry.category_id}-${entry.month}`] = entry.amount.toString()
+      // Use native amount if available, fall back to AED amount
+      const nativeVal = entry.native_amount !== null && entry.native_amount !== undefined 
+        ? entry.native_amount 
+        : entry.amount
+      budgetMap[`${entry.category_id}-${entry.month}`] = nativeVal.toString()
     })
     setBudgetData(budgetMap)
     
