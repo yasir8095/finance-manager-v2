@@ -47,7 +47,11 @@ export default function Budget() {
     
     const incomeMap: Record<string, string> = {}
     incomeEntries.forEach(entry => {
-      incomeMap[`${entry.source}-${entry.month}`] = entry.amount.toString()
+      // Use native amount if available, fall back to AED amount
+      const nativeVal = entry.native_amount !== null && entry.native_amount !== undefined 
+        ? entry.native_amount 
+        : entry.amount
+      incomeMap[`${entry.source}-${entry.month}`] = nativeVal.toString()
     })
     setIncomeData(incomeMap)
   }, [budgetEntries, incomeEntries])
@@ -83,6 +87,18 @@ export default function Budget() {
     const group = account ? `${groupName} - ${account.bank} - ${account.type}` : 'Ungrouped'
     if (!groupedCategories[group]) groupedCategories[group] = []
     groupedCategories[group].push(cat)
+  })
+  
+  // Group income sources by their linked account
+  const groupedIncomeSources: Record<string, any[]> = {}
+  const sortedIncomeSources = [...incomeSources].sort((a, b) => a.name.localeCompare(b.name))
+  sortedIncomeSources.forEach(source => {
+    const account = accounts.find(a => a.id === source.linked_account_id)
+    const accountGroup = account?.group_id ? accountGroups.find(g => g.id === account.group_id) : null
+    const groupName = accountGroup?.name || account?.name || 'Unassigned'
+    const group = account ? `${groupName} - ${account.bank} - ${account.type}` : 'Unassigned'
+    if (!groupedIncomeSources[group]) groupedIncomeSources[group] = []
+    groupedIncomeSources[group].push(source)
   })
   
   // Find school fees category
@@ -308,18 +324,144 @@ export default function Budget() {
     }
   }
   
+  // Get currency for an income source based on its linked account
+  const getIncomeSourceCurrency = (sourceName: string): string => {
+    const source = incomeSources.find(s => s.name === sourceName)
+    if (!source || !source.linked_account_id) return 'AED'
+    const account = accounts.find(a => a.id === source.linked_account_id)
+    return account?.currency || 'AED'
+  }
+  
+  // Set income cell with native currency support
   const setIncomeCell = (source: string, month: number, value: string) => {
     const key = `${source}-${month}`
     setIncomeData(prev => ({ ...prev, [key]: value }))
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
-      await addIncomeEntry({ year: selectedYear, month, source, amount: parseFloat(value) || 0 })
+      const currency = getIncomeSourceCurrency(source)
+      const nativeAmount = parseFloat(value) || 0
+      
+      // Get existing entry to preserve locked rate
+      const existing = incomeEntries.find(ie => ie.source === source && ie.month === month)
+      
+      let rate = 1
+      if (currency === 'AED') {
+        rate = 1
+      } else if (existing && existing.rate_to_aed && existing.native_currency === currency) {
+        rate = existing.rate_to_aed
+      } else {
+        rate = getCurrencyRate(currency)
+      }
+      
+      const aedAmount = nativeAmount * rate
+      
+      await addIncomeEntry({ 
+        year: selectedYear, 
+        month, 
+        source, 
+        amount: aedAmount,
+        native_amount: nativeAmount,
+        native_currency: currency,
+        rate_to_aed: rate
+      })
     }, 500)
   }
   
-  const getIncomeCell = (source: string, month: number) => {
+  // Get native value for income cell (for display)
+  const getIncomeCellNative = (source: string, month: number) => {
+    // Check local budgetData first (in-progress typing)
     const key = `${source}-${month}`
-    return incomeData[key] || ''
+    if (incomeData[key] !== undefined && incomeData[key] !== '') {
+      return incomeData[key]
+    }
+    
+    // Fall back to stored entry
+    const entry = incomeEntries.find(ie => ie.source === source && ie.month === month)
+    if (entry) {
+      if (entry.native_amount !== null && entry.native_amount !== undefined) {
+        return entry.native_amount.toString()
+      }
+      return entry.amount ? entry.amount.toString() : ''
+    }
+    
+    return ''
+  }
+  
+  // Get AED value for income cell (for calculations)
+  const getIncomeCell = (source: string, month: number) => {
+    const entry = incomeEntries.find(ie => ie.source === source && ie.month === month)
+    if (entry) {
+      return entry.amount ? entry.amount.toString() : ''
+    }
+    
+    // Check local budgetData (in-progress typing) - convert to AED
+    const key = `${source}-${month}`
+    const localVal = incomeData[key]
+    if (localVal && localVal !== '') {
+      const currency = getIncomeSourceCurrency(source)
+      if (currency === 'AED') return localVal
+      const rate = getCurrencyRate(currency)
+      return (parseFloat(localVal) * rate).toString()
+    }
+    
+    return ''
+  }
+  
+  // Get income entry's locked currency
+  const getIncomeCellCurrency = (source: string, month: number): string => {
+    const entry = incomeEntries.find(ie => ie.source === source && ie.month === month)
+    if (entry && entry.native_currency) {
+      return entry.native_currency
+    }
+    return getIncomeSourceCurrency(source)
+  }
+  
+  // Get income entry's locked rate
+  const getIncomeCellRate = (source: string, month: number): number => {
+    const entry = incomeEntries.find(ie => ie.source === source && ie.month === month)
+    if (entry && entry.rate_to_aed) {
+      return entry.rate_to_aed
+    }
+    return getCurrencyRate(getIncomeSourceCurrency(source))
+  }
+  
+  // Refresh rate for a specific income cell
+  const refreshIncomeCellRate = async (source: string, month: number) => {
+    const currency = getIncomeSourceCurrency(source)
+    if (currency === 'AED') return
+    
+    const currentRate = getCurrencyRate(currency)
+    const entry = incomeEntries.find(ie => ie.source === source && ie.month === month)
+    
+    if (!entry) {
+      alert('No entry to refresh')
+      return
+    }
+    
+    const oldRate = entry.rate_to_aed || currentRate
+    if (oldRate === currentRate) {
+      alert('Rate is already current')
+      return
+    }
+    
+    const confirmed = confirm(
+      `Update rate from ${oldRate.toFixed(4)} to ${currentRate.toFixed(4)}?\n\nThis will recalculate the AED equivalent for this income.`
+    )
+    
+    if (confirmed) {
+      const nativeAmount = entry.native_amount || 0
+      const newAedAmount = nativeAmount * currentRate
+      
+      await addIncomeEntry({
+        year: selectedYear,
+        month,
+        source,
+        amount: newAedAmount,
+        native_amount: nativeAmount,
+        native_currency: currency,
+        rate_to_aed: currentRate
+      })
+    }
   }
   
   const copyForwardFromLastFilled = (categoryId: number) => {
@@ -368,14 +510,49 @@ export default function Budget() {
     }
   }
   
-  const copyIncomeToAllMonths = (source: string, value: string, fromMonth: number) => {
+  const copyIncomeForwardFromLastFilled = (source: string) => {
+    // Find the last month with a non-zero value for this income source
+    let lastFilledMonth = -1
+    let lastValue = ''
+    for (let m = 0; m < 12; m++) {
+      const val = getIncomeCellNative(source, m)
+      const numVal = parseFloat(val)
+      if (val && val !== '' && !isNaN(numVal) && numVal !== 0) {
+        lastFilledMonth = m
+        lastValue = val
+      }
+    }
+    
+    if (lastFilledMonth === -1 || !lastValue) {
+      alert('No value to copy - enter a value in at least one month first')
+      return
+    }
+    
+    if (lastFilledMonth === 11) {
+      alert('This source is already filled through December')
+      return
+    }
+    
+    const currency = getIncomeSourceCurrency(source)
+    const rate = getCurrencyRate(currency)
+    const nativeAmount = parseFloat(lastValue) || 0
+    const aedAmount = nativeAmount * rate
+    
     const updates: Record<string, string> = {}
-    for (let m = fromMonth + 1; m < 12; m++) {
-      updates[`${source}-${m}`] = value
+    for (let m = lastFilledMonth + 1; m < 12; m++) {
+      updates[`${source}-${m}`] = lastValue
     }
     setIncomeData(prev => ({ ...prev, ...updates }))
-    for (let m = fromMonth + 1; m < 12; m++) {
-      addIncomeEntry({ year: selectedYear, month: m, source, amount: parseFloat(value) || 0 })
+    for (let m = lastFilledMonth + 1; m < 12; m++) {
+      addIncomeEntry({ 
+        year: selectedYear, 
+        month: m, 
+        source, 
+        amount: aedAmount,
+        native_amount: nativeAmount,
+        native_currency: currency,
+        rate_to_aed: rate
+      })
     }
   }
   
@@ -464,33 +641,88 @@ export default function Budget() {
       {viewMode === 'month' ? (
         <div>
           {/* Income Section */}
-          <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '20px', marginBottom: '15px', border: '1px solid var(--border)' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#10b981', marginBottom: '15px' }}>💰 Income</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {incomeSources.map(source => (
-                <div key={source.id} style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                  <span style={{ flex: 1, fontSize: '14px', color: 'var(--text-primary)' }}>{source.name}</span>
-                  <input type="number" value={getIncomeCell(source.name, selectedMonth)}
-                    onChange={(e) => setIncomeCell(source.name, selectedMonth, e.target.value)}
-                    style={{ width: '200px' }} />
+          {Object.entries(groupedIncomeSources).map(([group, groupSources]) => {
+            const groupAccount = accounts.find(a => {
+              const groupName = (accountGroups.find(g => g.id === a.group_id)?.name || a.name) + ' - ' + a.bank + ' - ' + a.type
+              return groupName === group
+            })
+            const groupCurrency = groupAccount?.currency || 'AED'
+            
+            return (
+              <div key={group} style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '20px', marginBottom: '15px', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#10b981' }}>
+                    {group}
+                    <span style={{ fontSize: '11px', color: '#d4b36a', marginLeft: '8px', padding: '2px 6px', background: 'rgba(201,165,74,0.15)', borderRadius: '4px' }}>
+                      {groupCurrency}
+                    </span>
+                  </h3>
                 </div>
-              ))}
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: '1px solid var(--border)' }}>
-                <span style={{ fontSize: '14px', fontWeight: '700', color: '#10b981' }}>Total Income</span>
-                <span style={{ fontSize: '14px', fontWeight: '700', color: '#10b981' }}>{formatCurrency(calculateIncomeMonthTotal(selectedMonth))}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {groupSources.map(source => {
+                    const currency = getIncomeCellCurrency(source.name, selectedMonth)
+                    const nativeVal = parseFloat(getIncomeCellNative(source.name, selectedMonth)) || 0
+                    const rate = getIncomeCellRate(source.name, selectedMonth)
+                    const aedVal = nativeVal * rate
+                    const entry = incomeEntries.find(ie => ie.source === source.name && ie.month === selectedMonth)
+                    const canRefresh = entry && entry.rate_to_aed !== getCurrencyRate(currency) && currency !== 'AED'
+                    
+                    return (
+                      <div key={source.id} style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        <span style={{ flex: 1, fontSize: '14px', color: 'var(--text-primary)' }}>{source.name}</span>
+                        <div style={{ width: '200px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <input type="number" 
+                            key={`${source.id}-${selectedMonth}-${selectedYear}`}
+                            defaultValue={getIncomeCellNative(source.name, selectedMonth)}
+                            onBlur={(e) => setIncomeCell(source.name, selectedMonth, e.target.value)}
+                            style={{ width: '100%' }} />
+                          {currency !== 'AED' && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
+                              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+                                ≈ AED {aedVal.toLocaleString(undefined, { maximumFractionDigits: 2 })} @ {rate.toFixed(3)}
+                              </span>
+                              {canRefresh && (
+                                <button 
+                                  onClick={() => refreshIncomeCellRate(source.name, selectedMonth)}
+                                  title="Refresh to current rate"
+                                  style={{ padding: '2px 6px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                  ⟳
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
+            )
+          })}
+          
+          {/* Total Income */}
+          <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '15px 20px', marginBottom: '15px', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '14px', fontWeight: '700', color: '#10b981' }}>💰 Total Income</span>
+            <span style={{ fontSize: '14px', fontWeight: '700', color: '#10b981' }}>{formatCurrency(calculateIncomeMonthTotal(selectedMonth))}</span>
           </div>
 
           {/* Expense Groups */}
-          {Object.entries(groupedCategories).map(([group, groupCats]) => (
+          {Object.entries(groupedCategories).map(([group, groupCats]) => {
+            const groupAccount = accounts.find(a => a.id === groupCats[0]?.linked_account_id)
+            const groupCurrency = groupAccount?.currency || 'AED'
+            const isCreditCard = groupAccount?.is_credit_card === 1
+            
+            return (
             <div key={group} style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '20px', marginBottom: '15px', border: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                 <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#d4b36a' }}>
                   {group}
-                  {accounts.find(a => a.id === groupCats[0]?.linked_account_id)?.is_credit_card === 1 && 
+                  {isCreditCard && 
                     <span style={{ fontSize: '11px', color: '#c05a6e', marginLeft: '8px' }}>💳</span>
                   }
+                  <span style={{ fontSize: '11px', color: '#d4b36a', marginLeft: '8px', padding: '2px 6px', background: 'rgba(201,165,74,0.15)', borderRadius: '4px' }}>
+                    {groupCurrency}
+                  </span>
                 </h3>
                 <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
                   {formatCurrency(calculateGroupMonthTotal(groupCats, selectedMonth))}
@@ -549,7 +781,8 @@ export default function Budget() {
                 })}
               </div>
             </div>
-          ))}
+            )
+          })}
 
           {/* Summary */}
           <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border)' }}>
@@ -594,24 +827,47 @@ export default function Budget() {
                 <tr>
                   <td colSpan={15} style={{ padding: 0 }}><div style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', padding: '10px 15px', fontSize: '14px', fontWeight: '600', color: '#10b981', zIndex: 1, width: '240px' }}>💰 INCOME</div></td>
                 </tr>
-                {incomeSources.map(source => (
-                  <tr key={source.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', padding: '8px 15px', fontSize: '13px', color: 'var(--text-primary)' }}>{source.name}</td>
-                    <td style={{ position: 'sticky', left: '180px', background: 'var(--card-bg)', padding: '8px', textAlign: 'center' }}>
-                      <button onClick={() => { const val = getIncomeCell(source.name, 0); if (val) copyIncomeToAllMonths(source.name, val, 0) }} style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', padding: '2px 6px', color: 'var(--text-secondary)' }}>⧉</button>
-                    </td>
-                    <td style={{ position: 'sticky', left: '240px', background: 'var(--card-bg)', padding: '8px 15px', fontSize: '12px', color: 'var(--text-tertiary)' }}>-</td>
-                    {monthNames.map((m, i) => (
-                      <td key={m} style={{ padding: '4px', textAlign: 'center' }}>
-                        <input type="number" value={getIncomeCell(source.name, i)} onChange={(e) => setIncomeCell(source.name, i, e.target.value)}
-                          style={{ width: '80px', padding: '6px 8px' }} />
-                      </td>
-                    ))}
-                    <td style={{ padding: '8px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#10b981' }}>
-                      {monthNames.reduce((sum, m, i) => sum + (parseFloat(getIncomeCell(source.name, i)) || 0), 0).toLocaleString() || '-'}
-                    </td>
-                  </tr>
-                ))}
+                {Object.entries(groupedIncomeSources).map(([group, groupSources]) => {
+                  const groupAccount = accounts.find(a => {
+                    const groupName = (accountGroups.find(g => g.id === a.group_id)?.name || a.name) + ' - ' + a.bank + ' - ' + a.type
+                    return groupName === group
+                  })
+                  const groupCurrency = groupAccount?.currency || 'AED'
+                  
+                  return (
+                    <React.Fragment key={group}>
+                      <tr>
+                        <td colSpan={15} style={{ padding: 0 }}><div style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', padding: '10px 15px', fontSize: '14px', fontWeight: '600', color: '#10b981', zIndex: 1, width: '240px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {group}
+                          <span style={{ fontSize: '11px', color: '#d4b36a', padding: '2px 6px', background: 'rgba(201,165,74,0.15)', borderRadius: '4px' }}>
+                            {groupCurrency}
+                          </span>
+                        </div></td>
+                      </tr>
+                      {groupSources.map(source => (
+                        <tr key={source.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', padding: '8px 15px', fontSize: '13px', color: 'var(--text-primary)' }}>{source.name}</td>
+                          <td style={{ position: 'sticky', left: '180px', background: 'var(--card-bg)', padding: '8px', textAlign: 'center' }}>
+                            <button onClick={() => copyIncomeForwardFromLastFilled(source.name)} title="Copy from last filled month forward" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', padding: '2px 6px', color: 'var(--text-secondary)' }}>⧉</button>
+                          </td>
+                          <td style={{ position: 'sticky', left: '240px', background: 'var(--card-bg)', padding: '8px 15px', fontSize: '12px', color: 'var(--text-tertiary)' }}>-</td>
+                          {monthNames.map((m, i) => (
+                            <td key={m} style={{ padding: '4px', textAlign: 'center' }}>
+                              <input type="number" 
+                                key={`${source.id}-${selectedYear}-${i}-${getIncomeCellNative(source.name, i)}`}
+                                defaultValue={getIncomeCellNative(source.name, i)}
+                                onBlur={(e) => setIncomeCell(source.name, i, e.target.value)}
+                                style={{ width: '80px', padding: '6px 8px', fontSize: '12px' }} />
+                            </td>
+                          ))}
+                          <td style={{ padding: '8px', textAlign: 'right', fontSize: '12px', fontWeight: '600', color: '#10b981' }}>
+                            {monthNames.reduce((sum, m, i) => sum + (parseFloat(getIncomeCell(source.name, i)) || 0), 0).toLocaleString() || '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  )
+                })}
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
                   <td colSpan={3} style={{ position: 'sticky', left: 0, background: 'var(--card-bg)', zIndex: 1, padding: '8px 15px', fontSize: '13px', fontWeight: '700', color: '#10b981' }}>TOTAL INCOME</td>
                   {monthNames.map((m, i) => (

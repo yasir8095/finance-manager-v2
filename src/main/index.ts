@@ -151,12 +151,12 @@ ipcMain.handle('update-budget-entry', (event, id, amount) => {
   return database.updateBudgetEntry(id, amount)
 })
 
-ipcMain.handle('add-income-source', (event, name) => {
-  return database.addIncomeSource(name)
+ipcMain.handle('add-income-source', (event, name, linkedAccountId) => {
+  return database.addIncomeSource(name, linkedAccountId)
 })
 
-ipcMain.handle('update-income-source', (event, id, name) => {
-  return database.updateIncomeSource(id, name)
+ipcMain.handle('update-income-source', (event, id, name, linkedAccountId) => {
+  return database.updateIncomeSource(id, name, linkedAccountId)
 })
 
 ipcMain.handle('deactivate-income-source', (event, id) => {

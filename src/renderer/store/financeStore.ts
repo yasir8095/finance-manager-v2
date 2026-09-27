@@ -51,8 +51,8 @@ interface FinanceState {
   deactivateCategory: (id: number) => Promise<void>
   addBudgetEntry: (entry: any) => Promise<void>
   updateBudgetEntry: (id: number, amount: number) => Promise<void>
-  addIncomeSource: (name: string) => Promise<void>
-  updateIncomeSource: (id: number, name: string) => Promise<void>
+  addIncomeSource: (name: string, linkedAccountId: number | null) => Promise<void>
+  updateIncomeSource: (id: number, name: string, linkedAccountId: number | null) => Promise<void>
   deactivateIncomeSource: (id: number) => Promise<void>
   reactivateIncomeSource: (id: number) => Promise<void>
   updateIncomeSourceOrder: (id: number, sortOrder: number) => Promise<void>
@@ -197,13 +197,13 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
     await get().refreshData()
   },
   
-  addIncomeSource: async (name) => {
-    await (window as any).electronAPI.addIncomeSource(name)
+  addIncomeSource: async (name, linkedAccountId) => {
+    await (window as any).electronAPI.addIncomeSource(name, linkedAccountId)
     await get().refreshData()
   },
   
-  updateIncomeSource: async (id, name) => {
-    await (window as any).electronAPI.updateIncomeSource(id, name)
+  updateIncomeSource: async (id, name, linkedAccountId) => {
+    await (window as any).electronAPI.updateIncomeSource(id, name, linkedAccountId)
     await get().refreshData()
   },
   

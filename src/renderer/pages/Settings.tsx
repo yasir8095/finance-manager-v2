@@ -31,6 +31,8 @@ export default function Settings() {
   const [newCategoryAccount, setNewCategoryAccount] = useState<number | null>(null)
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null)
   const [newIncomeSource, setNewIncomeSource] = useState('')
+  const [newIncomeSourceAccount, setNewIncomeSourceAccount] = useState<number | null>(null)
+  const [editingIncomeSourceAccount, setEditingIncomeSourceAccount] = useState<number | null>(null)
   const [editingIncomeSourceId, setEditingIncomeSourceId] = useState<number | null>(null)
   const [editingIncomeSourceName, setEditingIncomeSourceName] = useState('')
   const [newCurrencyCode, setNewCurrencyCode] = useState('')
@@ -182,18 +184,32 @@ export default function Settings() {
   }
   
   const handleAddIncomeSource = async () => {
-    if (newIncomeSource.trim()) {
-      await addIncomeSource(newIncomeSource)
-      setNewIncomeSource('')
+    if (!newIncomeSource.trim()) {
+      alert('Income source name is required')
+      return
     }
+    if (!newIncomeSourceAccount) {
+      alert('Please select an account where this income is deposited')
+      return
+    }
+    await addIncomeSource(newIncomeSource, newIncomeSourceAccount)
+    setNewIncomeSource('')
+    setNewIncomeSourceAccount(null)
   }
   
   const handleUpdateIncomeSource = async (id: number) => {
-    if (editingIncomeSourceName.trim()) {
-      await updateIncomeSource(id, editingIncomeSourceName)
-      setEditingIncomeSourceId(null)
-      setEditingIncomeSourceName('')
+    if (!editingIncomeSourceName.trim()) {
+      alert('Income source name is required')
+      return
     }
+    if (!editingIncomeSourceAccount) {
+      alert('Please select an account where this income is deposited')
+      return
+    }
+    await updateIncomeSource(id, editingIncomeSourceName, editingIncomeSourceAccount)
+    setEditingIncomeSourceId(null)
+    setEditingIncomeSourceName('')
+    setEditingIncomeSourceAccount(null)
   }
   
   const handleMoveIncomeSource = async (id: number, direction: 'up' | 'down') => {
@@ -455,11 +471,23 @@ export default function Settings() {
               placeholder="Income source name"
               value={newIncomeSource}
               onChange={(e) => setNewIncomeSource(e.target.value)}
-              style={{ maxWidth: '300px' }}
+              style={{ maxWidth: '250px' }}
             />
+            <select
+              value={newIncomeSourceAccount || 0}
+              onChange={(e) => setNewIncomeSourceAccount(Number(e.target.value) || null)}
+              style={{ maxWidth: '250px' }}
+            >
+              <option value={0}>Deposited to...</option>
+              {accounts.filter(a => !a.is_credit_card).map(account => (
+                <option key={account.id} value={account.id}>
+                  {account.name} - {account.bank} - {account.type} ({account.currency})
+                </option>
+              ))}
+            </select>
             <button onClick={handleAddIncomeSource}
               style={{ padding: '10px 20px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
-              {editingCategoryId ? 'Update' : 'Save'}
+              Save
             </button>
           </div>
           
@@ -491,22 +519,48 @@ export default function Settings() {
                       onChange={(e) => setEditingIncomeSourceName(e.target.value)}
                       style={{ flex: 1 }}
                     />
+                    <select
+                      value={editingIncomeSourceAccount || 0}
+                      onChange={(e) => setEditingIncomeSourceAccount(Number(e.target.value) || null)}
+                      style={{ flex: 1 }}
+                    >
+                      <option value={0}>Deposited to...</option>
+                      {accounts.filter(a => !a.is_credit_card).map(account => (
+                        <option key={account.id} value={account.id}>
+                          {account.name} - {account.bank} - {account.type} ({account.currency})
+                        </option>
+                      ))}
+                    </select>
                     <button onClick={() => handleUpdateIncomeSource(source.id)}
                       style={{ padding: '6px 12px', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
                       Save
                     </button>
-                    <button onClick={() => { setEditingIncomeSourceId(null); setEditingIncomeSourceName('') }}
+                    <button onClick={() => { setEditingIncomeSourceId(null); setEditingIncomeSourceName(''); setEditingIncomeSourceAccount(null) }}
                       style={{ padding: '6px 12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', color: 'var(--text-secondary)' }}>
                       Cancel
                     </button>
                   </div>
                 ) : (
-                  <span style={{ flex: 1, fontSize: '14px', color: 'var(--text-primary)' }}>{source.name}</span>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>{source.name}</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                      {source.linked_account_id 
+                        ? (() => {
+                            const acct = accounts.find(a => a.id === source.linked_account_id)
+                            return acct ? `${acct.name} - ${acct.bank} - ${acct.type} (${acct.currency})` : 'No account set'
+                          })()
+                        : '⚠ No account set'}
+                    </span>
+                  </div>
                 )}
                 
                 {editingIncomeSourceId !== source.id && (
                   <>
-                    <button onClick={() => { setEditingIncomeSourceId(source.id); setEditingIncomeSourceName(source.name) }}
+                    <button onClick={() => { 
+                      setEditingIncomeSourceId(source.id); 
+                      setEditingIncomeSourceName(source.name); 
+                      setEditingIncomeSourceAccount(source.linked_account_id || null) 
+                    }}
                       style={{ padding: '5px 12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', color: 'var(--text-secondary)' }}>
                       Edit
                     </button>

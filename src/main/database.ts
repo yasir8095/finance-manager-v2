@@ -73,8 +73,10 @@ export class FinanceDatabase {
       CREATE TABLE IF NOT EXISTS income_sources (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL UNIQUE,
+        linked_account_id INTEGER,
         is_active INTEGER DEFAULT 1,
-        sort_order INTEGER DEFAULT 0
+        sort_order INTEGER DEFAULT 0,
+        FOREIGN KEY (linked_account_id) REFERENCES accounts(id)
       );
 
       CREATE TABLE IF NOT EXISTS income_entries (
@@ -83,6 +85,9 @@ export class FinanceDatabase {
         month INTEGER NOT NULL,
         source TEXT NOT NULL,
         amount DECIMAL(15,2) DEFAULT 0,
+        native_amount DECIMAL(15,2),
+        native_currency TEXT,
+        rate_to_aed DECIMAL(15,6),
         UNIQUE(year, month, source)
       );
 
@@ -211,18 +216,40 @@ export class FinanceDatabase {
   }
   
   private runMigrations() {
-    // Check if columns exist
+    // Budget entries migrations
     const budgetColumns = this.db.prepare("PRAGMA table_info(budget_entries)").all() as any[]
-    const columnNames = budgetColumns.map(c => c.name)
+    const budgetColumnNames = budgetColumns.map(c => c.name)
     
-    if (!columnNames.includes('native_amount')) {
+    if (!budgetColumnNames.includes('native_amount')) {
       this.db.exec("ALTER TABLE budget_entries ADD COLUMN native_amount DECIMAL(15,2)")
     }
-    if (!columnNames.includes('native_currency')) {
+    if (!budgetColumnNames.includes('native_currency')) {
       this.db.exec("ALTER TABLE budget_entries ADD COLUMN native_currency TEXT")
     }
-    if (!columnNames.includes('rate_to_aed')) {
+    if (!budgetColumnNames.includes('rate_to_aed')) {
       this.db.exec("ALTER TABLE budget_entries ADD COLUMN rate_to_aed DECIMAL(15,6)")
+    }
+    
+    // Income sources migrations
+    const incomeSourceColumns = this.db.prepare("PRAGMA table_info(income_sources)").all() as any[]
+    const incomeSourceColumnNames = incomeSourceColumns.map(c => c.name)
+    
+    if (!incomeSourceColumnNames.includes('linked_account_id')) {
+      this.db.exec("ALTER TABLE income_sources ADD COLUMN linked_account_id INTEGER")
+    }
+    
+    // Income entries migrations
+    const incomeEntriesColumns = this.db.prepare("PRAGMA table_info(income_entries)").all() as any[]
+    const incomeEntriesColumnNames = incomeEntriesColumns.map(c => c.name)
+    
+    if (!incomeEntriesColumnNames.includes('native_amount')) {
+      this.db.exec("ALTER TABLE income_entries ADD COLUMN native_amount DECIMAL(15,2)")
+    }
+    if (!incomeEntriesColumnNames.includes('native_currency')) {
+      this.db.exec("ALTER TABLE income_entries ADD COLUMN native_currency TEXT")
+    }
+    if (!incomeEntriesColumnNames.includes('rate_to_aed')) {
+      this.db.exec("ALTER TABLE income_entries ADD COLUMN rate_to_aed DECIMAL(15,6)")
     }
   }
 
@@ -398,13 +425,13 @@ export class FinanceDatabase {
     return this.db.prepare('SELECT * FROM income_sources ORDER BY sort_order').all()
   }
 
-  addIncomeSource(name: string) {
-    const stmt = this.db.prepare('INSERT INTO income_sources (name, sort_order) VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM income_sources))')
-    return stmt.run(name)
+  addIncomeSource(name: string, linkedAccountId: number | null = null) {
+    const stmt = this.db.prepare('INSERT INTO income_sources (name, linked_account_id, sort_order) VALUES (?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM income_sources))')
+    return stmt.run(name, linkedAccountId)
   }
 
-  updateIncomeSource(id: number, name: string) {
-    return this.db.prepare('UPDATE income_sources SET name = ? WHERE id = ?').run(name, id)
+  updateIncomeSource(id: number, name: string, linkedAccountId: number | null = null) {
+    return this.db.prepare('UPDATE income_sources SET name = ?, linked_account_id = ? WHERE id = ?').run(name, linkedAccountId, id)
   }
 
   deactivateIncomeSource(id: number) {
@@ -430,11 +457,23 @@ export class FinanceDatabase {
 
   addIncomeEntry(entry: any) {
     const stmt = this.db.prepare(`
-      INSERT INTO income_entries (year, month, source, amount)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(year, month, source) DO UPDATE SET amount = excluded.amount
+      INSERT INTO income_entries (year, month, source, amount, native_amount, native_currency, rate_to_aed)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(year, month, source) DO UPDATE SET 
+        amount = excluded.amount,
+        native_amount = excluded.native_amount,
+        native_currency = excluded.native_currency,
+        rate_to_aed = excluded.rate_to_aed
     `)
-    return stmt.run(entry.year, entry.month, entry.source, entry.amount)
+    return stmt.run(
+      entry.year, 
+      entry.month, 
+      entry.source, 
+      entry.amount,
+      entry.native_amount || entry.amount,
+      entry.native_currency || 'AED',
+      entry.rate_to_aed || 1
+    )
   }
 
   updateIncomeEntry(id: number, amount: number) {
